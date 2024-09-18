@@ -85,11 +85,16 @@ def update_portfolio(user_id, symbol, shares, action):
         user.balance -= shares * get_stock_price(symbol)
     elif action == 'sell':
         user.balance += shares * get_stock_price(symbol)
+        # Remove shares from the transaction records
+        transaction = Transaction.query.filter_by(user_id=user_id, symbol=symbol, action='buy').first()
+        if transaction:
+            transaction.shares -= shares
+            if transaction.shares <= 0:
+                db.session.delete(transaction)  # Remove transaction if no shares left
     db.session.commit()
 
 def has_enough_shares(user_id, symbol, shares):
-    user = User.query.get(user_id)
-    existing_shares = Transaction.query.filter_by(user_id=user_id, symbol=symbol, action='buy').sum(Transaction.shares)
+    existing_shares = Transaction.query.filter_by(user_id=user_id, symbol=symbol, action='buy').with_entities(db.func.sum(Transaction.shares)).scalar()
     if existing_shares is None:
         existing_shares = 0
     return existing_shares >= shares
@@ -98,7 +103,6 @@ def get_nasdaq_stocks():
     # Fetch NASDAQ stocks and their prices, and store them in the database
     url = f'https://www.alphavantage.co/query?function=LISTING_STATUS&market=NASDAQ&apikey={ALPHA_VANTAGE_API_KEY}'
     response = requests.get(url)
-    print(response.text)
     return StockPrice.query.all()
     if response.status_code == 200:
         stocks = []
@@ -193,7 +197,6 @@ def portfolio():
     user_stocks = Transaction.query.filter_by(user_id=current_user.id, action='buy').all()
     return render_template('portfolio.html', user_balance=user_balance, user_stocks=user_stocks)
 
-
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template('404.html'), 404
@@ -281,3 +284,5 @@ def stock_detail(symbol):
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
     # app.run(debug=True, use_reloader=False)
+
+
